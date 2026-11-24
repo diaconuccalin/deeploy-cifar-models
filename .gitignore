@@ -1,0 +1,10 @@
+# Model artifacts (the deliverables are published as a GitHub release)
+deliverables/
+deliverables.zip
+runs/
+superseded/
+
+# Local data and caches
+data/
+__pycache__/
+*.pyc

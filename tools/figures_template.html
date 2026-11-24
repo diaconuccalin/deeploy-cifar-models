@@ -1,0 +1,343 @@
+<title>Deeploy CIFAR Architectures</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@600&display=swap">
+<style>
+/* Layout: a datasheet. Header + spec strip, then the two networks as vertical dataflow
+   columns (side by side on wide screens), each layer a row with its output tensor shape. */
+:root {
+  --bg: #f4f5f2;
+  --panel: #ffffff;
+  --fg: #1a1f1c;
+  --muted: #5d6660;
+  --line: #d5d9d3;
+  --accent: #1f4fd1;
+  --k-conv: #1f4fd1;
+  --k-dw: #0d8a7a;
+  --k-lin: #7a3fc4;
+  --k-attn: #c2306b;
+  --k-norm: #b26a00;
+  --k-pool: #6b7570;
+  --tag-bg: #eceee9;
+  --font-display: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #121513; --panel: #1a1e1c; --fg: #e6e9e5; --muted: #9aa49e; --line: #2f3632;
+    --accent: #7d9dff; --k-conv: #7d9dff; --k-dw: #3fc7b3; --k-lin: #b48af0; --k-attn: #f07aa6;
+    --k-norm: #e6a548; --k-pool: #9aa49e; --tag-bg: #262b28; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #121513; --panel: #1a1e1c; --fg: #e6e9e5; --muted: #9aa49e; --line: #2f3632;
+  --accent: #7d9dff; --k-conv: #7d9dff; --k-dw: #3fc7b3; --k-lin: #b48af0; --k-attn: #f07aa6;
+  --k-norm: #e6a548; --k-pool: #9aa49e; --tag-bg: #262b28; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.5;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 32px 48px;
+}
+.wrap { max-width: 1120px; margin: 0 auto; display: grid; gap: 32px; }
+header { display: grid; gap: 10px; }
+.eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+h1 { font-family: var(--font-display); font-weight: 600; font-size: clamp(28px, 4.5vw, 40px); line-height: 1.1; margin: 0; text-wrap: balance; }
+h2 { font-family: var(--font-display); font-weight: 600; font-size: 24px; margin: 0; text-wrap: balance; }
+h3 { font-size: 13px; font-weight: 600; margin: 0; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+p { margin: 0; max-width: 68ch; }
+.lede { color: var(--muted); }
+
+.controls { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--panel); }
+.seg button {
+  font: 500 13px var(--font-body); color: var(--muted); background: transparent; border: 0; padding: 7px 14px; cursor: pointer;
+}
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--fg); color: var(--bg); }
+.seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.ctl-label { font-size: 13px; color: var(--muted); }
+
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 10px; height: 10px; border-radius: 2px; flex: none; background: var(--k); }
+
+.nets { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr)); gap: 24px; align-items: start; }
+.net { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 20px; display: grid; gap: 18px; min-width: 0; }
+.net-head { display: grid; gap: 6px; }
+.badges { display: flex; flex-wrap: wrap; gap: 6px; }
+.badge { font: 500 12px var(--font-mono); padding: 2px 8px; border-radius: 4px; background: var(--tag-bg); color: var(--fg); }
+.badge.pending { color: var(--k-norm); }
+
+.specs { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.spec { background: var(--panel); padding: 10px 12px; display: grid; gap: 2px; min-width: 0; }
+.spec .k { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.spec .v { font: 500 17px var(--font-mono); font-variant-numeric: tabular-nums; }
+.spec .s { font-size: 12px; color: var(--muted); }
+
+/* dataflow */
+.flow { display: grid; justify-items: stretch; }
+.op {
+  display: grid; grid-template-columns: 10px 1fr auto; gap: 4px 10px; align-items: baseline;
+  border: 1px solid var(--line); border-radius: 6px; padding: 8px 12px; background: var(--panel);
+}
+.op .sw { align-self: center; }
+.op .name { font-weight: 600; font-size: 14px; }
+.op .detail { grid-column: 2 / 4; font-size: 13px; color: var(--muted); }
+.op .dep { font: 400 11px var(--font-mono); color: var(--muted); white-space: nowrap; }
+.op.io { background: transparent; border-style: dashed; }
+.edge { display: grid; grid-template-columns: 1fr; justify-items: center; height: 30px; position: relative; }
+.edge::before { content: ""; position: absolute; top: 0; bottom: 6px; left: 50%; width: 1.5px; background: var(--muted); transform: translateX(-50%); }
+.edge::after { content: ""; position: absolute; bottom: 0; left: 50%; transform: translateX(-50%); border: 5px solid transparent; border-top: 6px solid var(--muted); border-bottom: 0; }
+.shape {
+  position: absolute; left: calc(50% + 10px); top: 50%; transform: translateY(-50%);
+  font: 500 12px var(--font-mono); font-variant-numeric: tabular-nums; color: var(--fg); white-space: nowrap;
+}
+.group { border: 1.5px dashed var(--line); border-radius: 10px; padding: 26px 12px 12px; position: relative; display: grid; }
+.group > .glabel {
+  position: absolute; top: 6px; left: 12px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 600;
+}
+.group > .repeat { position: absolute; top: 4px; right: 10px; font: 600 13px var(--font-mono); color: var(--fg); }
+.res { position: relative; display: grid; padding-right: 30px; }
+.res::after {
+  /* skip connection: from the block input (top) down to the add node */
+  content: ""; position: absolute; right: 6px; top: -14px; bottom: 18px; width: 18px;
+  border: 1.5px solid var(--k-dw); border-left: 0; border-radius: 0 8px 8px 0;
+}
+.res.attn::after { border-color: var(--k-attn); }
+.res.mlp::after { border-color: var(--k-lin); }
+.add {
+  justify-self: center; display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted);
+}
+.add b { width: 26px; height: 26px; border-radius: 50%; border: 1.5px solid var(--fg); display: grid; place-items: center; font: 600 16px var(--font-mono); color: var(--fg); background: var(--panel); }
+.notes { display: grid; gap: 8px; font-size: 14px; }
+.notes p { color: var(--fg); }
+.notes code, p code { font: 13px var(--font-mono); background: var(--tag-bg); padding: 1px 4px; border-radius: 3px; }
+footer { font-size: 13px; color: var(--muted); display: grid; gap: 6px; }
+@media (prefers-reduced-motion: no-preference) { .seg button { transition: background .15s, color .15s; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Deeploy · Siracusa · 32×32 RGB input</div>
+    <h1>CIFAR classifiers for Deeploy</h1>
+    <p class="lede">Two networks, each trained on CIFAR-10 and CIFAR-100: an int8 MiniMobileNetV2 and an FP32 Compact Convolutional Transformer. Each row is one layer, and the label on each arrow is the tensor shape it produces (channels × height × width, or tokens × features).</p>
+    <div class="controls">
+      <span class="ctl-label">Dataset</span>
+      <div class="seg" role="group" aria-label="Dataset">
+        <button type="button" id="ds10" data-ds="10" aria-pressed="false">CIFAR-10</button>
+        <button type="button" id="ds100" data-ds="100" aria-pressed="true">CIFAR-100</button>
+      </div>
+    </div>
+    <div class="legend">
+      <span style="--k: var(--k-conv)"><i class="sw"></i>Convolution</span>
+      <span style="--k: var(--k-dw)"><i class="sw"></i>Depthwise conv</span>
+      <span style="--k: var(--k-lin)"><i class="sw"></i>Linear / MLP</span>
+      <span style="--k: var(--k-attn)"><i class="sw"></i>Attention</span>
+      <span style="--k: var(--k-norm)"><i class="sw"></i>LayerNorm</span>
+      <span style="--k: var(--k-pool)"><i class="sw"></i>Pooling / reshape</span>
+    </div>
+  </header>
+
+  <div class="nets">
+    <!-- ======================= MiniMobileNetV2 ======================= -->
+    <section class="net" aria-labelledby="mmn-title">
+      <div class="net-head">
+        <h2 id="mmn-title">MiniMobileNetV2</h2>
+        <div class="badges">
+          <span class="badge">int8 weights &amp; activations</span>
+          <span class="badge">global-avg-pool head</span>
+          <span class="badge" id="mmn-status">delivered</span>
+        </div>
+      </div>
+      <div class="controls">
+        <span class="ctl-label">Width</span>
+        <div class="seg" role="group" aria-label="Width multiplier">
+          <button type="button" id="w4" data-w="4" aria-pressed="true">4×</button>
+          <button type="button" id="w6" data-w="6" aria-pressed="false">6×</button>
+        </div>
+      </div>
+      <div class="specs">
+        <div class="spec"><span class="k">Test accuracy</span><span class="v" id="mmn-acc"></span><span class="s" id="mmn-acc-s"></span></div>
+        <div class="spec"><span class="k">Parameters</span><span class="v" id="mmn-par"></span><span class="s">BN folded at export</span></div>
+        <div class="spec"><span class="k">MACs</span><span class="v" id="mmn-mac"></span><span class="s">per image</span></div>
+        <div class="spec"><span class="k">Siracusa cycles</span><span class="v" id="mmn-cyc"></span><span class="s" id="mmn-cyc-s"></span></div>
+      </div>
+
+      <div class="flow">
+        <div class="op io"><i class="sw" style="--k: var(--k-pool)"></i><span class="name">Input image</span><span class="dep">uint8</span><span class="detail">Raw RGB pixels 0–255, no normalization</span></div>
+        <div class="edge"><span class="shape">3×32×32</span></div>
+
+        <div class="op"><i class="sw" style="--k: var(--k-conv)"></i><span class="name">Stem conv 3×3, stride 2</span><span class="dep">Conv + RQS</span><span class="detail">3 → <span data-ch="1"></span> channels, BatchNorm, ReLU</span></div>
+        <div class="edge"><span class="shape"><span data-ch="1"></span>×16×16</span></div>
+
+        <div class="group">
+          <span class="glabel">Inverted residual 1 · stride 2</span>
+          <div class="op"><i class="sw" style="--k: var(--k-conv)"></i><span class="name">Expand 1×1</span><span class="dep">Conv + RQS</span><span class="detail"><span data-ch="1"></span> → <span data-ch="2"></span>, ReLU</span></div>
+          <div class="edge"><span class="shape"><span data-ch="2"></span>×16×16</span></div>
+          <div class="op"><i class="sw" style="--k: var(--k-dw)"></i><span class="name">Depthwise 3×3, stride 2</span><span class="dep">Conv + RQS</span><span class="detail">ReLU</span></div>
+          <div class="edge"><span class="shape"><span data-ch="2"></span>×8×8</span></div>
+          <div class="op"><i class="sw" style="--k: var(--k-conv)"></i><span class="name">Project 1×1</span><span class="dep">Conv + RQS</span><span class="detail"><span data-ch="2"></span> → <span data-ch="1"></span>, linear (int8 out)</span></div>
+        </div>
+        <div class="edge"><span class="shape"><span data-ch="1"></span>×8×8</span></div>
+
+        <div class="group">
+          <span class="glabel">Inverted residual 2 · with skip</span>
+          <div class="res">
+            <div class="op"><i class="sw" style="--k: var(--k-conv)"></i><span class="name">Expand 1×1</span><span class="dep">Conv + RQS</span><span class="detail"><span data-ch="1"></span> → <span data-ch="2"></span>, ReLU</span></div>
+            <div class="edge"><span class="shape"><span data-ch="2"></span>×8×8</span></div>
+            <div class="op"><i class="sw" style="--k: var(--k-dw)"></i><span class="name">Depthwise 3×3</span><span class="dep">Conv + RQS</span><span class="detail">ReLU</span></div>
+            <div class="edge"><span class="shape"><span data-ch="2"></span>×8×8</span></div>
+            <div class="op"><i class="sw" style="--k: var(--k-conv)"></i><span class="name">Project 1×1</span><span class="dep">Conv + RQS</span><span class="detail"><span data-ch="2"></span> → <span data-ch="1"></span>, linear</span></div>
+            <div class="edge"></div>
+            <div class="add"><b>+</b>add block input, requantize</div>
+          </div>
+        </div>
+        <div class="edge"><span class="shape"><span data-ch="1"></span>×8×8</span></div>
+
+        <div class="group">
+          <span class="glabel">Inverted residual 3</span>
+          <div class="op"><i class="sw" style="--k: var(--k-conv)"></i><span class="name">Expand 1×1</span><span class="dep">Conv + RQS</span><span class="detail"><span data-ch="1"></span> → <span data-ch="2"></span>, ReLU</span></div>
+          <div class="edge"><span class="shape"><span data-ch="2"></span>×8×8</span></div>
+          <div class="op"><i class="sw" style="--k: var(--k-dw)"></i><span class="name">Depthwise 3×3</span><span class="dep">Conv + RQS</span><span class="detail">ReLU</span></div>
+          <div class="edge"><span class="shape"><span data-ch="2"></span>×8×8</span></div>
+          <div class="op"><i class="sw" style="--k: var(--k-conv)"></i><span class="name">Project 1×1</span><span class="dep">Conv + RQS</span><span class="detail"><span data-ch="2"></span> → <span data-ch="2"></span>, linear</span></div>
+        </div>
+        <div class="edge"><span class="shape"><span data-ch="2"></span>×8×8</span></div>
+
+        <div class="op"><i class="sw" style="--k: var(--k-pool)"></i><span class="name">Global average pool</span><span class="dep">DW Conv + RQS</span><span class="detail">8×8 depthwise conv of ones, then ÷64 in the requantization</span></div>
+        <div class="edge"><span class="shape"><span data-ch="2"></span></span></div>
+
+        <div class="op"><i class="sw" style="--k: var(--k-lin)"></i><span class="name">Classifier</span><span class="dep">Gemm + RQS</span><span class="detail"><span data-ch="2"></span> → <span class="nc"></span> classes</span></div>
+        <div class="edge"><span class="shape"><span class="nc"></span> int8 logits</span></div>
+        <div class="op io"><i class="sw" style="--k: var(--k-pool)"></i><span class="name">Prediction</span><span class="dep">argmax</span></div>
+      </div>
+
+      <div class="notes">
+        <h3>How it is quantized</h3>
+        <p>Every layer is an integer <code>Conv</code> or <code>Gemm</code> followed by a <code>RequantShift</code> (RQS) that applies the folded BatchNorm and activation scale: <code>y = clip((x·mul + add + div/2) / div)</code> with a power-of-two <code>div</code>. Layers with ReLU output uint8 (0…255); linear projections and the logits output int8.</p>
+      </div>
+    </section>
+
+    <!-- ======================= CCT ======================= -->
+    <section class="net" aria-labelledby="cct-title">
+      <div class="net-head">
+        <h2 id="cct-title">CCT_2_32_32_128</h2>
+        <div class="badges">
+          <span class="badge">FP32</span>
+          <span class="badge">2 blocks · 2 heads · dim 128</span>
+          <span class="badge">delivered</span>
+        </div>
+      </div>
+      <div class="specs">
+        <div class="spec"><span class="k">Test accuracy</span><span class="v" id="cct-acc"></span><span class="s" id="cct-acc-s"></span></div>
+        <div class="spec"><span class="k">Parameters</span><span class="v" id="cct-par"></span><span class="s">about 1.1 MB in FP32</span></div>
+        <div class="spec"><span class="k">MACs</span><span class="v">35.3M</span><span class="s">per image</span></div>
+        <div class="spec"><span class="k">Siracusa cycles</span><span class="v" id="cct-cyc"></span><span class="s">single / double buffer, L3</span></div>
+      </div>
+
+      <div class="flow">
+        <div class="op io"><i class="sw" style="--k: var(--k-pool)"></i><span class="name">Input image</span><span class="dep">float32</span><span class="detail">RGB ÷ 255, normalized with the dataset mean / std</span></div>
+        <div class="edge"><span class="shape">3×32×32</span></div>
+
+        <div class="group">
+          <span class="glabel">Convolutional tokenizer</span>
+          <div class="op"><i class="sw" style="--k: var(--k-conv)"></i><span class="name">Conv 3×3</span><span class="dep">Conv</span><span class="detail">3 → 64, no bias, ReLU</span></div>
+          <div class="edge"><span class="shape">64×32×32</span></div>
+          <div class="op"><i class="sw" style="--k: var(--k-pool)"></i><span class="name">Max pool 3×3, stride 2</span><span class="dep">MaxPool</span></div>
+          <div class="edge"><span class="shape">64×16×16</span></div>
+          <div class="op"><i class="sw" style="--k: var(--k-conv)"></i><span class="name">Conv 3×3</span><span class="dep">Conv</span><span class="detail">64 → 128, no bias, ReLU</span></div>
+          <div class="edge"><span class="shape">128×16×16</span></div>
+          <div class="op"><i class="sw" style="--k: var(--k-pool)"></i><span class="name">Max pool 3×3, stride 2</span><span class="dep">MaxPool</span></div>
+          <div class="edge"><span class="shape">128×8×8</span></div>
+          <div class="op"><i class="sw" style="--k: var(--k-pool)"></i><span class="name">Flatten to tokens</span><span class="dep">Reshape + Transpose</span><span class="detail">each of the 8×8 positions becomes one token</span></div>
+        </div>
+        <div class="edge"><span class="shape">64 tokens × 128</span></div>
+
+        <div class="op"><i class="sw" style="--k: var(--k-lin)"></i><span class="name">+ Positional embedding</span><span class="dep">Add</span><span class="detail">learned, 64 × 128</span></div>
+        <div class="edge"><span class="shape">64×128</span></div>
+
+        <div class="group">
+          <span class="glabel">Transformer block · repeated 2×</span>
+          <div class="res attn">
+            <div class="op"><i class="sw" style="--k: var(--k-norm)"></i><span class="name">LayerNorm</span><span class="dep">LayerNorm</span></div>
+            <div class="edge"><span class="shape">64×128</span></div>
+            <div class="op"><i class="sw" style="--k: var(--k-attn)"></i><span class="name">Multi-head self-attention</span><span class="dep">Gemm · MatMul · Softmax</span><span class="detail">Q, K, V: 128 → 128 (no bias), split into 2 heads of 64; softmax(QKᵀ / 8)·V; output projection 128 → 128</span></div>
+            <div class="edge"></div>
+            <div class="add"><b>+</b>add block input</div>
+          </div>
+          <div class="edge"></div>
+          <div class="op"><i class="sw" style="--k: var(--k-norm)"></i><span class="name">LayerNorm</span><span class="dep">LayerNorm</span><span class="detail">applied after the attention residual</span></div>
+          <div class="edge"><span class="shape">64×128</span></div>
+          <div class="res mlp">
+            <div class="op"><i class="sw" style="--k: var(--k-lin)"></i><span class="name">Linear</span><span class="dep">Gemm</span><span class="detail">128 → 128, GELU (tanh approximation)</span></div>
+            <div class="edge"><span class="shape">64×128</span></div>
+            <div class="op"><i class="sw" style="--k: var(--k-lin)"></i><span class="name">Linear</span><span class="dep">Gemm</span><span class="detail">128 → 128</span></div>
+            <div class="edge"></div>
+            <div class="add"><b>+</b>add normalized input</div>
+          </div>
+        </div>
+        <div class="edge"><span class="shape">64×128</span></div>
+
+        <div class="op"><i class="sw" style="--k: var(--k-norm)"></i><span class="name">LayerNorm</span><span class="dep">LayerNorm</span></div>
+        <div class="edge"><span class="shape">64×128</span></div>
+
+        <div class="op"><i class="sw" style="--k: var(--k-attn)"></i><span class="name">Sequence pooling</span><span class="dep">MatMul · Softmax</span><span class="detail">a 128 → 1 projection scores each token; softmax over the 64 scores; weighted sum of the tokens</span></div>
+        <div class="edge"><span class="shape">128</span></div>
+
+        <div class="op"><i class="sw" style="--k: var(--k-lin)"></i><span class="name">Classifier</span><span class="dep">Gemm</span><span class="detail">128 → <span class="nc"></span> classes</span></div>
+        <div class="edge"><span class="shape"><span class="nc"></span> float logits</span></div>
+        <div class="op io"><i class="sw" style="--k: var(--k-pool)"></i><span class="name">Prediction</span><span class="dep">argmax</span></div>
+      </div>
+
+      <div class="notes">
+        <h3>Same graph as DeeployTest</h3>
+        <p>The operators and their order are those of Deeploy's reference <code>CCT/FP32/CCT_2_32_32_128</code> test, with trained weights written in. One change: each Gemm has its own bias tensor, where the reference shared one. On Siracusa it runs with L3 as the default memory level and L1 = 128 kB.</p>
+      </div>
+    </section>
+  </div>
+
+  <footer>
+    <p>Accuracies are on the full 10,000-image CIFAR test sets; for the int8 models they come from a bit-exact integer reference of the deployed graph. Cycles are GVSoC runs of Siracusa through Deeploy's tiled flow, 8 cores, upstream <code>devel</code> at <code>e4519eb7</code>. Parameter counts are trainable parameters.</p>
+  </footer>
+</div>
+
+<script>
+const DATA = {
+  mmn: {
+    4: { status: "delivered",
+         10:  { acc: "86.57%", accS: "int8, deployed graph", par: 65994, mac: "5.91M", cyc: "966k / 1.20M", cycS: "single / double buffer, L1 60 kB" },
+         100: { acc: "61.83%", accS: "int8, deployed graph", par: 77604, mac: "5.92M", cyc: "966k / 1.20M", cycS: "single / double buffer, L1 60 kB" } },
+    6: { status: "in training",
+         10:  { acc: "87.65%", accS: "float, before int8 export", par: 141994, mac: "12.8M", cyc: "1.93M / 1.94M", cycS: "single / double buffer, L1 60 kB, random weights" },
+         100: { acc: "64.16%", accS: "float, before int8 export", par: 159364, mac: "12.8M", cyc: "1.93M / 1.94M", cycS: "single / double buffer, L1 60 kB, random weights" } }
+  },
+  cct: {
+    10:  { acc: "89.64%", accS: "FP32", par: 283723, cyc: "58.5M / 58.3M" },
+    100: { acc: "68.01%", accS: "FP32, distilled from ResNet-18", par: 295333, cyc: "58.5M / 58.5M" }
+  }
+};
+let ds = 100, w = 6;
+const $ = (id) => document.getElementById(id);
+const fmt = (n) => n.toLocaleString("en-US");
+function render() {
+  document.querySelectorAll("[data-ch]").forEach((el) => { el.textContent = 16 * w * Number(el.dataset.ch); });
+  document.querySelectorAll(".nc").forEach((el) => { el.textContent = ds; });
+  const m = DATA.mmn[w], md = m[ds];
+  $("mmn-acc").textContent = md.acc; $("mmn-acc-s").textContent = md.accS;
+  $("mmn-par").textContent = fmt(md.par); $("mmn-mac").textContent = md.mac;
+  $("mmn-cyc").textContent = md.cyc; $("mmn-cyc-s").textContent = md.cycS;
+  const st = $("mmn-status"); st.textContent = m.status; st.classList.toggle("pending", m.status !== "delivered");
+  const c = DATA.cct[ds];
+  $("cct-acc").textContent = c.acc; $("cct-acc-s").textContent = c.accS;
+  $("cct-par").textContent = fmt(c.par); $("cct-cyc").textContent = c.cyc;
+  document.querySelectorAll("[data-ds]").forEach((b) => b.setAttribute("aria-pressed", String(Number(b.dataset.ds) === ds)));
+  document.querySelectorAll("[data-w]").forEach((b) => b.setAttribute("aria-pressed", String(Number(b.dataset.w) === w)));
+}
+document.querySelectorAll("[data-ds]").forEach((b) => b.addEventListener("click", () => { ds = Number(b.dataset.ds); render(); }));
+document.querySelectorAll("[data-w]").forEach((b) => b.addEventListener("click", () => { w = Number(b.dataset.w); render(); }));
+render();
+</script>
